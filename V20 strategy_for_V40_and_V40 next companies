@@ -1,0 +1,87 @@
+# Install Required Libraries
+!pip install yfinance pandas numpy
+
+# Import Libraries
+import yfinance as yf
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+
+# List of NIFTY Next 50 companies' ticker symbols
+v40_companies = [
+    'RELIANCE.NS', 'TCS.NS', 'HDFCBANK.NS', 'HINDUNILVR.NS', 'INFY.NS',"BANKBEES.NS",'NIFTYBEES.NS','ICICIBANK.NS','AXISBANK.NS','KOTAKBANK.NS','HCLTECH.NS','HDFCAMC.NS','HDFCLIFE.NS','ICICIPRULI.NS','ICICIGI.NS','BAJAJHLDNG.NS','BAJFINANCE.NS', 'NESTLEIND.NS','PGHH.NS','PIDILITIND.NS','COLPAl.NS','DABUR.NS','GILLETTE.NS','MARICO.NS','ITC.NS','TITAN.NS','PAGEIND.NS','BATAINDIA.NS','HAVELLS.NS','GLAXO.NS','ABBOTINDIA.NS','PFIZER.NS','SANOFI.NS','AKZOINDIA.NS','ASIANPAINT.NS','BERGEPAINT.NS','BAJAJ-AUTO.NS','DMART.NS'
+]
+
+v40_next_companies = ['EQUITASBNK.NS', 'UJJIVANSFB.NS', '5PAISA.NS', 'ANGELONE.NS', 'ISEC.NS', 'MOTILALOFS.NS', 'MCX.NS', 'OFSS.NS', 'TATAELXSI.NS', 'TEAMLEASE.NS', 'SIS.NS', 'ASTRAZEN.NS', 'BAYERCROP.NS', 'ERIS.NS', 'LALPATHLAB.NS','FINEORG.NS', 'CAPLIPOINT.NS','VINATIORGA.NS','INDIGOPNTS.NS','KANSAINER.NS', '3MINDIA.NS','GODREJCP.NS','FINCABLES.NS','DIXON.NS','CERA.NS','HONAUT.NS','JCHAC.NS','LUXIND.NS','POLYCAB.NS','RAJESHEXPO.NS','SFL.NS','SYMPHONY.NS','VIPIND.NS','TTKPRESTIG.NS','BOSCHLTD.NS','EICHERMOT.NS','MCDOWELL-N.NS','RADICO.NS','SUNTV.NS']
+v40_v40next_companies = v40_companies + v40_next_companies
+
+
+# Fetch 2 years of historical data
+end_date = datetime.now()
+start_date = end_date - timedelta(days=2*365)
+
+data = {ticker: yf.download(ticker, start=start_date, end=end_date) for ticker in v40_v40next_companies}
+
+# Define Functions to Identify Continuous Green Candles and Calculate Movements
+def find_continuous_green_candles(data):
+    green_candles = []
+    for ticker, df in data.items():
+        df['Green'] = df['Close'] > df['Open']
+        current_streak = []
+        for i in range(1, len(df)):
+            if df['Green'].iloc[i]:
+                current_streak.append(i)
+            else:
+                if len(current_streak) > 1:
+                    green_candles.append((ticker, current_streak))
+                current_streak = []
+        if len(current_streak) > 1:
+            green_candles.append((ticker, current_streak))
+    return green_candles
+
+def calculate_movement(data, green_candles):
+    results = []
+    for ticker, streak in green_candles:
+        start_idx = streak[0]
+        end_idx = streak[-1]
+        lowest_price = data[ticker]['Low'].iloc[start_idx]
+        highest_price = data[ticker]['High'].iloc[end_idx]
+        movement = (highest_price - lowest_price) / lowest_price * 100
+        if movement > 20:
+            results.append({
+                'Company': ticker,
+                'Start Date': data[ticker].index[start_idx],
+                'End Date': data[ticker].index[end_idx],
+                'Lowest Price': lowest_price,
+                'Highest Price': highest_price,
+                'Percentage Movement': movement
+            })
+    return pd.DataFrame(results)
+
+green_candles = find_continuous_green_candles(data)
+movement_results = calculate_movement(data, green_candles)
+
+# Check for Current Market Price Condition
+def check_current_price_condition(data, movement_results):
+    if movement_results.empty:
+        return pd.DataFrame()
+
+    most_recent_movement = movement_results.iloc[-1]
+    ticker = most_recent_movement['Company']
+    start_idx = data[ticker].index.get_loc(most_recent_movement['Start Date'])
+    lowest_price = data[ticker]['Low'].iloc[start_idx]
+    current_price = data[ticker]['Close'][-1]
+    
+    movement_results['Current Price'] = movement_results['Company'].apply(lambda x: data[x]['Close'][-1])
+    movement_results['Highlight'] = movement_results.apply(lambda row: 'yes' if row['Current Price'] < row['Lowest Price'] else 'no', axis=1)
+
+    return movement_results
+
+current_price_condition_results = check_current_price_condition(data, movement_results)
+
+# Display the Results with Styling
+def highlight_rows(row):
+    color = 'green' if row['Highlight'] == 'yes' else ''
+    return ['background-color: %s; color: black;' % color if color else '' for _ in row]
+
+current_price_condition_results.style.apply(highlight_rows, axis=1)
